@@ -14,24 +14,45 @@ final class ClipPlayer {
 
     func prepare(url: URL) {
         stop()
+        lastError = nil
+
+        guard url.scheme?.lowercased() == "https" else {
+            lastError = "This preview URL is not supported."
+            player = nil
+            return
+        }
+
         player = AVPlayer(playerItem: AVPlayerItem(url: url))
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
-            lastError = error.localizedDescription
+            lastError = "Audio playback could not be prepared."
         }
     }
 
     func play(seconds: TimeInterval, startAt: TimeInterval = 0) {
-        guard let player else { return }
+        guard let player else {
+            lastError = "This preview is currently unavailable."
+            return
+        }
+        guard lastError == nil else { return }
+
         removeObserver()
-        let start = CMTime(seconds: startAt, preferredTimescale: 600)
-        let end = CMTime(seconds: startAt + seconds, preferredTimescale: 600)
+
+        let safeStart = max(0, startAt)
+        let safeDuration = max(0.1, seconds)
+        let start = CMTime(seconds: safeStart, preferredTimescale: 600)
+        let end = CMTime(seconds: safeStart + safeDuration, preferredTimescale: 600)
         stopAt = end
+
         player.seek(to: start, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
+                if let itemError = player.currentItem?.error {
+                    self.failPlayback(itemError)
+                    return
+                }
                 self.installObserver()
                 player.play()
                 self.isPlaying = true
@@ -52,10 +73,24 @@ final class ClipPlayer {
             queue: .main
         ) { [weak self] current in
             Task { @MainActor in
-                guard let self, let stopAt = self.stopAt else { return }
+                guard let self else { return }
+
+                if let itemError = player.currentItem?.error {
+                    self.failPlayback(itemError)
+                    return
+                }
+
+                guard let stopAt = self.stopAt else { return }
                 if current >= stopAt { self.stop() }
             }
         }
+    }
+
+    private func failPlayback(_ error: Error) {
+        player?.pause()
+        isPlaying = false
+        removeObserver()
+        lastError = "This preview could not be played. Please try again."
     }
 
     private func removeObserver() {
