@@ -6,10 +6,19 @@ enum DailyQuizPicker {
         return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
     }
 
-    static func track(for date: Date = Date(), from tracks: [QuizTrack], calendar: Calendar = .current) -> QuizTrack? {
+    static func track(
+        for date: Date = Date(),
+        from tracks: [QuizTrack],
+        schedule: DailySchedule = .empty,
+        calendar: Calendar = .current
+    ) -> QuizTrack? {
         guard !tracks.isEmpty else { return nil }
-        let sorted = tracks.sorted { $0.id < $1.id }
         let key = dateKey(for: date, calendar: calendar)
+        if let scheduledID = schedule.trackID(for: key),
+           let track = tracks.first(where: { $0.id == scheduledID }) {
+            return track
+        }
+        let sorted = tracks.sorted { $0.id < $1.id }
         let index = Int(stableHash(key) % UInt64(sorted.count))
         return sorted[index]
     }
