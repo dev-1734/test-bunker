@@ -1,0 +1,158 @@
+name: Shared iOS simulator smoke
+
+on:
+  push:
+    paths:
+      - "projects/**"
+      - ".github/workflows/ios-simulator.yml"
+  workflow_dispatch:
+    inputs:
+      project:
+        description: "Project directory under projects/ (for example: music-quiz)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.discover.outputs.projects }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: discover
+        name: Discover changed iOS projects
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PROJECT: ${{ inputs.project }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          root = pathlib.Path("projects")
+
+          def is_ios_project(name: str) -> bool:
+              env_file = root / name / "bunker.env"
+              if not env_file.is_file():
+                  return False
+              values = env_file.read_text(encoding="utf-8")
+              return any(line.strip() == "PLATFORM=ios" for line in values.splitlines())
+
+          if os.environ["EVENT_NAME"] == "workflow_dispatch":
+              requested = os.environ.get("INPUT_PROJECT", "").strip()
+              if not requested or not is_ios_project(requested):
+                  raise SystemExit(f"Unknown or non-iOS bunker project: {requested!r}")
+              projects = [requested]
+          else:
+              before = os.environ.get("BEFORE_SHA", "")
+              current = os.environ["CURRENT_SHA"]
+              zero = "0" * 40
+
+              if not before or before == zero:
+                  changed = [".github/workflows/ios-simulator.yml"]
+              else:
+                  output = subprocess.check_output(
+                      ["git", "diff", "--name-only", before, current], text=True
+                  )
+                  changed = [line.strip() for line in output.splitlines() if line.strip()]
+
+              if ".github/workflows/ios-simulator.yml" in changed:
+                  candidates = [p.name for p in root.iterdir() if p.is_dir()]
+              else:
+                  candidates = sorted({
+                      pathlib.PurePosixPath(path).parts[1]
+                      for path in changed
+                      if path.startswith("projects/") and len(pathlib.PurePosixPath(path).parts) >= 3
+                  })
+
+              projects = [name for name in candidates if is_ios_project(name)]
+
+          payload = json.dumps(sorted(set(projects)), separators=(",", ":"))
+          print(f"iOS bunker projects: {payload}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"projects={payload}\n")
+          PY
+
+  simulator-test:
+    needs: discover
+    if: needs.discover.outputs.projects != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.discover.outputs.projects) }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load project configuration
+        working-directory: projects/${{ matrix.project }}
+        run: |
+          set -a
+          source bunker.env
+          set +a
+          echo "XCODE_PROJECT=$XCODE_PROJECT" >> "$GITHUB_ENV"
+          echo "SCHEME=$SCHEME" >> "$GITHUB_ENV"
+          echo "BUNDLE_ID=$BUNDLE_ID" >> "$GITHUB_ENV"
+
+      - name: Install XcodeGen if needed
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
+      - name: Generate Xcode project
+        working-directory: projects/${{ matrix.project }}
+        run: xcodegen generate
+
+      - name: Boot an available iPhone Simulator
+        run: |
+          xcrun simctl list devices available -j > "$RUNNER_TEMP/simulators.json"
+          SIMULATOR_UDID=$(python3 <<'PY'
+          import json
+          import os
+
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "simulators.json"), encoding="utf-8") as f:
+              payload = json.load(f)
+
+          candidates = []
+          for runtime, devices in payload.get("devices", {}).items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
+                      candidates.append((runtime, device["name"], device["udid"]))
+
+          if not candidates:
+              raise SystemExit("No available iPhone Simulator found")
+
+          candidates.sort(reverse=True)
+          print(candidates[0][2])
+          PY
+          )
+          echo "SIMULATOR_UDID=$SIMULATOR_UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$SIMULATOR_UDID" || true
+          xcrun simctl bootstatus "$SIMULATOR_UDID" -b
+
+      - name: Run XCTest on Simulator
+        working-directory: projects/${{ matrix.project }}
+        run: |
+          xcodebuild test \
+            -project "$XCODE_PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -destination "id=$SIMULATOR_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData-${{ matrix.project }}" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Shutdown Simulator
+        if: always()
+        run: xcrun simctl shutdown "$SIMULATOR_UDID" || true
