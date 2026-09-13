@@ -1,0 +1,39 @@
+name: MusicQuizCoreSmoke
+options:
+  bundleIdPrefix: dev.torchnn.testbunker
+  deploymentTarget:
+    iOS: "17.0"
+
+targets:
+  MusicQuizCoreSmoke:
+    type: application
+    platform: iOS
+    sources:
+      - Sources/Core
+      - Sources/App
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.torchnn.testbunker.musicquiz
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: 5.0
+
+  MusicQuizCoreSmokeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests
+    dependencies:
+      - target: MusicQuizCoreSmoke
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: 5.0
+
+schemes:
+  MusicQuizCoreSmoke:
+    build:
+      targets:
+        MusicQuizCoreSmoke: all
+    test:
+      targets:
+        - MusicQuizCoreSmokeTests
