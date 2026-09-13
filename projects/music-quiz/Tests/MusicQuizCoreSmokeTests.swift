@@ -42,17 +42,37 @@ final class MusicQuizCoreSmokeTests: XCTestCase {
     func testClipProgressionContract() {
         var progression = QuizProgression()
         XCTAssertEqual(progression.currentClipDuration, 1)
+        XCTAssertEqual(progression.attemptNumber, 1)
+        XCTAssertFalse(progression.isFinished)
 
-        progression.advance()
+        progression.advanceAfterMiss()
         XCTAssertEqual(progression.currentClipDuration, 2)
-        progression.advance()
+        progression.advanceAfterMiss()
         XCTAssertEqual(progression.currentClipDuration, 4)
-        progression.advance()
+        progression.advanceAfterMiss()
         XCTAssertEqual(progression.currentClipDuration, 7)
-        progression.advance()
+        progression.advanceAfterMiss()
         XCTAssertEqual(progression.currentClipDuration, 11)
-        progression.advance()
+        progression.advanceAfterMiss()
         XCTAssertEqual(progression.currentClipDuration, 16)
+        XCTAssertFalse(progression.isFinished)
+
+        progression.advanceAfterMiss()
+        XCTAssertTrue(progression.isFinished)
+        XCTAssertEqual(progression.attemptNumber, 6)
+    }
+
+    func testSolvedProgressionFinishesWithoutAdvancingAttempt() {
+        var progression = QuizProgression()
+        progression.advanceAfterMiss()
+        progression.advanceAfterMiss()
+        XCTAssertEqual(progression.attemptNumber, 3)
+
+        progression.finishSolved()
+
+        XCTAssertTrue(progression.isFinished)
+        XCTAssertEqual(progression.attemptNumber, 3)
+        XCTAssertEqual(progression.currentClipDuration, 4)
     }
 
     @MainActor
