@@ -40,6 +40,12 @@ final class MusicQuizCoreSmokeTests: XCTestCase {
         XCTAssertEqual(DailyQuizPicker.track(for: date, from: tracks, schedule: schedule, calendar: calendar)?.id, "b")
     }
 
+    func testSnapshotRejectsMissingScheduledTrack() {
+        let catalog = QuizCatalog(generatedAt: "v1", tracks: [makeTrack(id: "a", title: "A", artist: "Artist")])
+        let schedule = DailySchedule(schemaVersion: 1, generatedAt: nil, entries: ["2026-09-13": "missing"])
+        XCTAssertThrowsError(try CatalogSnapshot(catalog: catalog, schedule: schedule).validated())
+    }
+
     func testClipProgressionContract() {
         var progression = QuizProgression()
         for expected in [1.0, 2, 4, 7, 11, 16] {
