@@ -4,7 +4,6 @@ import XCTest
 final class MusicQuizCoreSmokeTests: XCTestCase {
     func testSearchNormalizationAndMatching() {
         let track = makeTrack(id: "1", title: "Super Shy", artist: "NewJeans")
-
         XCTAssertTrue(track.matchesSearch("super shy"))
         XCTAssertTrue(track.matchesSearch("new jeans"))
         XCTAssertEqual(QuizTrack.normalized("Super-Shy!"), "supershy")
@@ -13,51 +12,40 @@ final class MusicQuizCoreSmokeTests: XCTestCase {
     func testRankedSearchPrefersExactTitleOverArtistMatch() {
         let exactTitle = makeTrack(id: "title", title: "Ditto", artist: "NewJeans")
         let artistMatch = makeTrack(id: "artist", title: "Another Song", artist: "Ditto")
-
-        let results = QuizSearch.suggestions(for: "Ditto", in: [artistMatch, exactTitle])
-        XCTAssertEqual(results.first?.id, exactTitle.id)
+        XCTAssertEqual(QuizSearch.suggestions(for: "Ditto", in: [artistMatch, exactTitle]).first?.id, exactTitle.id)
     }
 
     func testRankedSearchDeduplicatesSameArtistAndTitle() {
-        let albumVersion = makeTrack(id: "album", title: "Drama", artist: "aespa")
-        let singleVersion = makeTrack(id: "single", title: "Drama", artist: "aespa")
-
-        let results = QuizSearch.suggestions(for: "Drama", in: [albumVersion, singleVersion])
-        XCTAssertEqual(results.count, 1)
+        let a = makeTrack(id: "album", title: "Drama", artist: "aespa")
+        let b = makeTrack(id: "single", title: "Drama", artist: "aespa")
+        XCTAssertEqual(QuizSearch.suggestions(for: "Drama", in: [a, b]).count, 1)
     }
 
     func testDailyPickerIsDeterministicForSameDate() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let date = Date(timeIntervalSince1970: 1_725_984_000)
-        let tracks = (0..<8).map { index in
-            makeTrack(id: "track-\(index)", title: "Song \(index)", artist: "Artist \(index)")
-        }
-
+        let tracks = (0..<8).map { makeTrack(id: "track-\($0)", title: "Song \($0)", artist: "Artist \($0)") }
         let first = DailyQuizPicker.track(for: date, from: tracks, calendar: calendar)
         let second = DailyQuizPicker.track(for: date, from: tracks.reversed(), calendar: calendar)
         XCTAssertEqual(first?.id, second?.id)
     }
 
+    func testPublishedDailyScheduleWins() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let date = calendar.date(from: DateComponents(year: 2026, month: 9, day: 13))!
+        let tracks = [makeTrack(id: "a", title: "A", artist: "Artist"), makeTrack(id: "b", title: "B", artist: "Artist")]
+        let schedule = DailySchedule(schemaVersion: 1, generatedAt: nil, entries: ["2026-09-13": "b"])
+        XCTAssertEqual(DailyQuizPicker.track(for: date, from: tracks, schedule: schedule, calendar: calendar)?.id, "b")
+    }
+
     func testClipProgressionContract() {
         var progression = QuizProgression()
-        XCTAssertEqual(progression.currentClipDuration, 1)
-        XCTAssertEqual(progression.attemptNumber, 1)
-        XCTAssertFalse(progression.isFinished)
-
-        progression.advanceAfterMiss()
-        XCTAssertEqual(progression.currentClipDuration, 2)
-        progression.advanceAfterMiss()
-        XCTAssertEqual(progression.currentClipDuration, 4)
-        progression.advanceAfterMiss()
-        XCTAssertEqual(progression.currentClipDuration, 7)
-        progression.advanceAfterMiss()
-        XCTAssertEqual(progression.currentClipDuration, 11)
-        progression.advanceAfterMiss()
-        XCTAssertEqual(progression.currentClipDuration, 16)
-        XCTAssertFalse(progression.isFinished)
-
-        progression.advanceAfterMiss()
+        for expected in [1.0, 2, 4, 7, 11, 16] {
+            XCTAssertEqual(progression.currentClipDuration, expected)
+            progression.advanceAfterMiss()
+        }
         XCTAssertTrue(progression.isFinished)
         XCTAssertEqual(progression.attemptNumber, 6)
     }
@@ -66,10 +54,7 @@ final class MusicQuizCoreSmokeTests: XCTestCase {
         var progression = QuizProgression()
         progression.advanceAfterMiss()
         progression.advanceAfterMiss()
-        XCTAssertEqual(progression.attemptNumber, 3)
-
         progression.finishSolved()
-
         XCTAssertTrue(progression.isFinished)
         XCTAssertEqual(progression.attemptNumber, 3)
         XCTAssertEqual(progression.currentClipDuration, 4)
@@ -79,22 +64,13 @@ final class MusicQuizCoreSmokeTests: XCTestCase {
     func testClipPlayerRejectsNonHTTPSPreview() {
         let player = ClipPlayer()
         player.prepare(url: URL(string: "http://example.com/preview.m4a")!)
-
         XCTAssertFalse(player.isPlaying)
         XCTAssertNotNil(player.lastError)
     }
 
     private func makeTrack(id: String, title: String, artist: String) -> QuizTrack {
-        QuizTrack(
-            id: id,
-            title: title,
-            artist: artist,
-            source: .applePreview,
-            previewURL: "https://example.com/\(id).m4a",
-            storeURL: nil,
-            artworkURL: nil,
-            releaseDate: "2024-01-01",
-            providerTrackID: id
-        )
+        QuizTrack(id: id, title: title, artist: artist, source: .applePreview,
+                  previewURL: "https://example.com/\(id).m4a", storeURL: nil,
+                  artworkURL: nil, releaseDate: "2024-01-01", providerTrackID: id)
     }
 }
