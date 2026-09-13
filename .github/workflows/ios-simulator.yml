@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: shared-ios-simulator-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   discover:
     runs-on: ubuntu-latest
@@ -113,7 +117,7 @@ jobs:
         working-directory: projects/${{ matrix.project }}
         run: xcodegen generate
 
-      - name: Boot an available iPhone Simulator
+      - name: Select an available iPhone Simulator
         run: |
           xcrun simctl list devices available -j > "$RUNNER_TEMP/simulators.json"
           SIMULATOR_UDID=$(python3 <<'PY'
@@ -139,8 +143,6 @@ jobs:
           PY
           )
           echo "SIMULATOR_UDID=$SIMULATOR_UDID" >> "$GITHUB_ENV"
-          xcrun simctl boot "$SIMULATOR_UDID" || true
-          xcrun simctl bootstatus "$SIMULATOR_UDID" -b
 
       - name: Run XCTest on Simulator
         working-directory: projects/${{ matrix.project }}
@@ -149,10 +151,13 @@ jobs:
             -project "$XCODE_PROJECT" \
             -scheme "$SCHEME" \
             -configuration Debug \
-            -destination "id=$SIMULATOR_UDID" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
             -derivedDataPath "$RUNNER_TEMP/DerivedData-${{ matrix.project }}" \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Shutdown Simulator
         if: always()
-        run: xcrun simctl shutdown "$SIMULATOR_UDID" || true
+        run: |
+          if [[ -n "${SIMULATOR_UDID:-}" ]]; then
+            xcrun simctl shutdown "$SIMULATOR_UDID" || true
+          fi
