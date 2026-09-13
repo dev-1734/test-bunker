@@ -3,21 +3,27 @@ import XCTest
 
 final class MusicQuizCoreSmokeTests: XCTestCase {
     func testSearchNormalizationAndMatching() {
-        let track = QuizTrack(
-            id: "1",
-            title: "Super Shy",
-            artist: "NewJeans",
-            source: .applePreview,
-            previewURL: "https://example.com/preview.m4a",
-            storeURL: nil,
-            artworkURL: nil,
-            releaseDate: "2023-07-07",
-            providerTrackID: "1"
-        )
+        let track = makeTrack(id: "1", title: "Super Shy", artist: "NewJeans")
 
         XCTAssertTrue(track.matchesSearch("super shy"))
         XCTAssertTrue(track.matchesSearch("new jeans"))
         XCTAssertEqual(QuizTrack.normalized("Super-Shy!"), "supershy")
+    }
+
+    func testRankedSearchPrefersExactTitleOverArtistMatch() {
+        let exactTitle = makeTrack(id: "title", title: "Ditto", artist: "NewJeans")
+        let artistMatch = makeTrack(id: "artist", title: "Another Song", artist: "Ditto")
+
+        let results = QuizSearch.suggestions(for: "Ditto", in: [artistMatch, exactTitle])
+        XCTAssertEqual(results.first?.id, exactTitle.id)
+    }
+
+    func testRankedSearchDeduplicatesSameArtistAndTitle() {
+        let albumVersion = makeTrack(id: "album", title: "Drama", artist: "aespa")
+        let singleVersion = makeTrack(id: "single", title: "Drama", artist: "aespa")
+
+        let results = QuizSearch.suggestions(for: "Drama", in: [albumVersion, singleVersion])
+        XCTAssertEqual(results.count, 1)
     }
 
     func testDailyPickerIsDeterministicForSameDate() {
@@ -25,17 +31,7 @@ final class MusicQuizCoreSmokeTests: XCTestCase {
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let date = Date(timeIntervalSince1970: 1_725_984_000)
         let tracks = (0..<8).map { index in
-            QuizTrack(
-                id: "track-\(index)",
-                title: "Song \(index)",
-                artist: "Artist \(index)",
-                source: .applePreview,
-                previewURL: "https://example.com/\(index).m4a",
-                storeURL: nil,
-                artworkURL: nil,
-                releaseDate: nil,
-                providerTrackID: nil
-            )
+            makeTrack(id: "track-\(index)", title: "Song \(index)", artist: "Artist \(index)")
         }
 
         let first = DailyQuizPicker.track(for: date, from: tracks, calendar: calendar)
@@ -57,5 +53,28 @@ final class MusicQuizCoreSmokeTests: XCTestCase {
         XCTAssertEqual(progression.currentClipDuration, 11)
         progression.advance()
         XCTAssertEqual(progression.currentClipDuration, 16)
+    }
+
+    @MainActor
+    func testClipPlayerRejectsNonHTTPSPreview() {
+        let player = ClipPlayer()
+        player.prepare(url: URL(string: "http://example.com/preview.m4a")!)
+
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertNotNil(player.lastError)
+    }
+
+    private func makeTrack(id: String, title: String, artist: String) -> QuizTrack {
+        QuizTrack(
+            id: id,
+            title: title,
+            artist: artist,
+            source: .applePreview,
+            previewURL: "https://example.com/\(id).m4a",
+            storeURL: nil,
+            artworkURL: nil,
+            releaseDate: "2024-01-01",
+            providerTrackID: id
+        )
     }
 }
