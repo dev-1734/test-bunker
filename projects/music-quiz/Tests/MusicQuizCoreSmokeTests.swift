@@ -31,6 +31,21 @@ final class MusicQuizCoreSmokeTests: XCTestCase {
         XCTAssertEqual(first?.id, second?.id)
     }
 
+    func testCatalogSnapshotAndCacheRoundTrip() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let catalog = QuizCatalog(generatedAt: "2026-09-15T00:00:00Z", tracks: [makeTrack(id: "cached", title: "Cached", artist: "Artist")])
+        let local = CatalogLocal(bundle: .main, fileManager: .default, cacheDirectory: temp)
+        try local.save(CatalogSnapshot(catalog: catalog))
+        let cached = try XCTUnwrap(local.cached())
+        XCTAssertEqual(cached.catalog.tracks.first?.id, "cached")
+    }
+
+    func testCatalogSnapshotRejectsEmptyCatalog() {
+        let catalog = QuizCatalog(generatedAt: "2026-09-15T00:00:00Z", tracks: [])
+        XCTAssertThrowsError(try CatalogSnapshot(catalog: catalog).validated())
+    }
+
     func testClipProgressionContract() {
         var progression = QuizProgression()
         for expected in [1.0, 2, 4, 7, 11, 16] {
