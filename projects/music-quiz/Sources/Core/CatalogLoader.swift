@@ -1,11 +1,12 @@
 import Foundation
 
 struct CatalogLoader {
+    static let catalogFreshness: TimeInterval = 7 * 24 * 60 * 60
+
     let remote: CatalogRemote
     let local: CatalogLocal
     let remoteCatalogURL: URL?
     let now: () -> Date
-    let calendar: Calendar
 
     init(
         session: URLSession = .shared,
@@ -14,19 +15,17 @@ struct CatalogLoader {
         cacheDirectory: URL? = nil,
         remoteCatalogURL: URL? = nil,
         useConfiguredRemote: Bool = true,
-        now: @escaping () -> Date = Date.init,
-        calendar: Calendar = .current
+        now: @escaping () -> Date = Date.init
     ) {
         self.remote = CatalogRemote(session: session)
         self.local = CatalogLocal(bundle: bundle, fileManager: fileManager, cacheDirectory: cacheDirectory)
         self.remoteCatalogURL = remoteCatalogURL ?? (useConfiguredRemote ? Self.configuredURL("RemoteCatalogURL", bundle: bundle) : nil)
         self.now = now
-        self.calendar = calendar
     }
 
     func load() async throws -> (CatalogSnapshot, CatalogSource) {
         let cached = local.cached()
-        if let cached, isCurrentWeek(cached.catalog) {
+        if let cached, isFresh(cached.catalog) {
             return (cached, .cache)
         }
         if let remoteCatalogURL {
@@ -42,13 +41,11 @@ struct CatalogLoader {
         return (try local.bundled(), .bundled)
     }
 
-    private func isCurrentWeek(_ catalog: QuizCatalog) -> Bool {
+    private func isFresh(_ catalog: QuizCatalog) -> Bool {
         guard let generatedAt = catalog.generatedAt,
               let generatedDate = ISO8601DateFormatter().date(from: generatedAt) else { return false }
-        let expected = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now())
-        let actual = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: generatedDate)
-        return expected.yearForWeekOfYear == actual.yearForWeekOfYear
-            && expected.weekOfYear == actual.weekOfYear
+        let age = now().timeIntervalSince(generatedDate)
+        return age >= 0 && age < Self.catalogFreshness
     }
 
     private static func configuredURL(_ key: String, bundle: Bundle) -> URL? {
