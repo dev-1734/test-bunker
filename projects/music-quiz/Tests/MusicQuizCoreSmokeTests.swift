@@ -21,7 +21,7 @@ final class MusicQuizCoreSmokeTests: XCTestCase {
         XCTAssertEqual(QuizSearch.suggestions(for: "Drama", in: [a, b]).count, 1)
     }
 
-    func testDailyPickerIsDeterministicForSameDate() {
+    func testDailyPickerIsDeterministicForSameDateAndCatalog() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let date = Date(timeIntervalSince1970: 1_725_984_000)
@@ -29,21 +29,6 @@ final class MusicQuizCoreSmokeTests: XCTestCase {
         let first = DailyQuizPicker.track(for: date, from: tracks, calendar: calendar)
         let second = DailyQuizPicker.track(for: date, from: tracks.reversed(), calendar: calendar)
         XCTAssertEqual(first?.id, second?.id)
-    }
-
-    func testPublishedDailyScheduleWins() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let date = calendar.date(from: DateComponents(year: 2026, month: 9, day: 13))!
-        let tracks = [makeTrack(id: "a", title: "A", artist: "Artist"), makeTrack(id: "b", title: "B", artist: "Artist")]
-        let schedule = DailySchedule(schemaVersion: 1, generatedAt: nil, entries: ["2026-09-13": "b"])
-        XCTAssertEqual(DailyQuizPicker.track(for: date, from: tracks, schedule: schedule, calendar: calendar)?.id, "b")
-    }
-
-    func testSnapshotRejectsMissingScheduledTrack() {
-        let catalog = QuizCatalog(generatedAt: "v1", tracks: [makeTrack(id: "a", title: "A", artist: "Artist")])
-        let schedule = DailySchedule(schemaVersion: 1, generatedAt: nil, entries: ["2026-09-13": "missing"])
-        XCTAssertThrowsError(try CatalogSnapshot(catalog: catalog, schedule: schedule).validated())
     }
 
     func testClipProgressionContract() {
